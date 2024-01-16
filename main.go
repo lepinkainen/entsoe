@@ -24,7 +24,7 @@ var ctx = context.Background()
 const DEBUG = false
 const DRY_RUN = false
 
-func fill_from_entsoe(rdb *redis.Client, start, end string) {
+func fill_from_entsoe(rdb *redis.Client, startApi, endApi string) {
 
 	var count = 0
 
@@ -37,6 +37,7 @@ func fill_from_entsoe(rdb *redis.Client, start, end string) {
 	// Create a new Redis Time Series with duplicate policy LAST, allowing overwrites
 	var tsOptions = redis.TSOptions{
 		DuplicatePolicy: "LAST",
+		Labels:          map[string]string{"type": "price", "country": "fi"},
 	}
 
 	createRes := rdb.TSCreateWithArgs(ctx, viper.GetString("redis.dbname"), &tsOptions)
@@ -49,8 +50,8 @@ func fill_from_entsoe(rdb *redis.Client, start, end string) {
 		viper.GetString("nordpool.apikey"),
 		viper.GetString("nordpool.in_domain"),
 		viper.GetString("nordpool.out_domain"),
-		start,
-		end)
+		startApi,
+		endApi)
 
 	//fmt.Printf("URL: %s\n", url)
 
@@ -104,15 +105,8 @@ func fill_from_entsoe(rdb *redis.Client, start, end string) {
 					RedisTimestamp: pointTime.Unix() * 1000,
 				}
 
-				tsOptions = redis.TSOptions{
-					Labels: map[string]string{
-						"source": "entsoe",
-					},
-				}
-
 				if !DRY_RUN {
-					//res := pipe.TSAdd(ctx, viper.GetString("redis.dbname"), pricePoint.RedisTimestamp, pricePoint.Price)
-					res := pipe.TSAddWithArgs(ctx, viper.GetString("redis.dbname"), pricePoint.RedisTimestamp, pricePoint.Price, &tsOptions)
+					res := pipe.TSAdd(ctx, viper.GetString("redis.dbname"), pricePoint.RedisTimestamp, pricePoint.Price)
 					if res.Err() != nil {
 						fmt.Printf("Error adding value to Redis: %+v\n", res.Err())
 					}
