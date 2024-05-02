@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -31,7 +32,7 @@ func fill_from_entsoe(rdb *redis.Client, startApi, endApi string) {
 	// ping and panic if failed
 	res := rdb.Ping(ctx)
 	if res.Err() != nil {
-		panic(res.Err())
+		os.Exit(1)
 	}
 
 	// Create a new Redis Time Series with duplicate policy LAST, allowing overwrites
