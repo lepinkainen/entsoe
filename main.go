@@ -5,14 +5,16 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
-	"os"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
 )
 
+// PricePoint represents a single price data point with timestamp information
 type PricePoint struct {
 	TimeStamp      time.Time
 	Time           string
@@ -20,31 +22,33 @@ type PricePoint struct {
 	RedisTimestamp int64
 }
 
-var ctx = context.Background()
-
 const DEBUG = false
 const DRY_RUN = false
 
-func fill_from_entsoe(rdb *redis.Client, startApi, endApi string) {
+// fillFromEntsoe retrieves price data from Entsoe API and stores it in Redis
+func fillFromEntsoe(rdb *redis.Client, startApi, endApi string) error {
 
 	var count = 0
 
-	// ping and panic if failed
-	res := rdb.Ping(ctx)
-	if res.Err() != nil {
-		os.Exit(1)
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// ping and handle error properly
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("redis connection failed: %w", err)
 	}
 
-	// Create a new Redis Time Series with duplicate policy LAST, allowing overwrites
-	var tsOptions = redis.TSOptions{
+	// Create a new Redis Time Series with duplicate policy LAST
+	tsOptions := redis.TSOptions{
 		DuplicatePolicy: "LAST",
 		Labels:          map[string]string{"type": "price", "country": "fi"},
 	}
 
-	createRes := rdb.TSCreateWithArgs(ctx, viper.GetString("redis.dbname"), &tsOptions)
-
-	if createRes.Err() != nil && (createRes.Err().Error() == "TS.CREATE entsoe:fi DUPLICATE_POLICY LAST: ERR TSDB: key already exists") {
-		fmt.Printf("createRes: %+v\n", createRes)
+	if err := rdb.TSCreateWithArgs(ctx, viper.GetString("redis.dbname"), &tsOptions).Err(); err != nil {
+		if !strings.Contains(err.Error(), "key already exists") {
+			return fmt.Errorf("failed to create time series: %w", err)
+		}
 	}
 
 	url := fmt.Sprintf("https://web-api.tp.entsoe.eu/api?securityToken=%s&documentType=A44&out_Domain=%s&in_Domain=%s&periodStart=%s&periodEnd=%s",
@@ -59,14 +63,14 @@ func fill_from_entsoe(rdb *redis.Client, startApi, endApi string) {
 	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Printf("Error making HTTP request: %v", err)
-		return
+		return err
 	}
 	defer resp.Body.Close()
 
 	xmlData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Printf("Error reading HTTP response: %v", err)
-		return
+		return err
 	}
 
 	var doc PublicationMarketDocument
@@ -77,24 +81,22 @@ func fill_from_entsoe(rdb *redis.Client, startApi, endApi string) {
 		err = xml.Unmarshal(xmlData, &doc)
 		if err != nil {
 			fmt.Printf("Error unmarshaling AcknowledgementMarketDocumentXML: %v", err)
-			return
+			return err
 		}
 		fmt.Printf("Error retrieving data: Code: %s\nMessage: %s\n", doc.Reason.Code, doc.Reason.Text)
-		return
+		return err
 	}
 
 	layout := "2006-01-02T15:04Z"
 
 	// Use pipeline to fill the data faster
-	rdb.Pipelined(ctx, func(pipe redis.Pipeliner) error {
-
+	_, err = rdb.Pipelined(ctx, func(pipe redis.Pipeliner) error {
 		for _, timeserie := range doc.TimeSeries {
 			// start of this timeseries
 			startStr := timeserie.Period.TimeInterval.Start
 			start, _ := time.Parse(layout, startStr)
 
 			for _, point := range timeserie.Period.Points {
-
 				// the actual time of the point
 				pointTime := start.Add(time.Duration(point.Position-1) * time.Hour)
 
@@ -107,24 +109,23 @@ func fill_from_entsoe(rdb *redis.Client, startApi, endApi string) {
 				}
 
 				if !DRY_RUN {
-					res := pipe.TSAdd(ctx, viper.GetString("redis.dbname"), pricePoint.RedisTimestamp, pricePoint.Price)
-					if res.Err() != nil {
-						fmt.Printf("Error adding value to Redis: %+v\n", res.Err())
+					if err := pipe.TSAdd(ctx, viper.GetString("redis.dbname"),
+						pricePoint.RedisTimestamp,
+						pricePoint.Price).Err(); err != nil {
+						return fmt.Errorf("failed to add value to Redis: %w", err)
 					}
-
-					count = count + 1
-
-					if DEBUG {
-						fmt.Printf("Result: %+v\n", res)
-						fmt.Printf("PricePoint: %+v\n", pricePoint)
-					}
+					count++
 				}
 			}
 		}
 		return nil
 	})
 
-	//fmt.Printf("Inserted %+v values to redisdb %s\n", count, viper.GetString("redis.dbname"))
+	if err != nil {
+		return fmt.Errorf("pipeline execution failed: %w", err)
+	}
+
+	return nil
 }
 
 func main() {
@@ -159,21 +160,7 @@ func main() {
 	// midnight tomorrow
 	end := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location()).Format("200601020000")
 
-	fill_from_entsoe(rdb, start, end)
+	if err := fillFromEntsoe(rdb, start, end); err != nil {
+		log.Fatalf("Failed to fill data from Entsoe: %v", err)
+	}
 }
-
-/*
-	fmt.Println()
-
-	// get current price
-	nowUnix := int(now.UnixMilli())
-	valueSlice := rdb.TSRange(ctx, DBNAME, nowUnix, nowUnix)
-	if valueSlice.Err() != nil {
-		fmt.Printf("Error getting values from Redis: %+v\n", valueSlice.Err())
-	}
-	tsValue, _ := valueSlice.Result()
-	fmt.Printf("Redis values: %+v\n", tsValue)
-	if len(tsValue) > 0 {
-		fmt.Printf("Value: %.2f\n", tsValue[0].Value)
-	}
-*/

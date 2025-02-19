@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+dotenv: [".env"]
+
+vars:
+  EXECUTABLE: entsoe_redis
+
+tasks:
+  build:
+    deps: [vet]
+    cmds:
+      - GOARCH=amd64 GOOS=linux go build -v -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.EXECUTABLE}}
+    sources:
+      - ./*.go
+    generates:
+      - "{{.EXECUTABLE}}"
+    vars:
+      GIT_COMMIT:
+        sh: git log -n 1 --format=%h
+
+  build_linux:
+    deps: [vet]
+    cmds:
+      - GOARCH=amd64 GOOS=linux go build -v -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.EXECUTABLE}}
+    sources:
+      - ./*.go
+    generates:
+      - "{{.EXECUTABLE}}"
+    vars:
+      GIT_COMMIT:
+        sh: git log -n 1 --format=%h
+
+  lint:
+    desc: Run Go linters
+    cmds:
+      - golangci-lint run ./...
+    sources:
+      - ./**/*.go
+    silent: true
+
+  vet:
+    cmds:
+      - go vet ./...
+    sources:
+      - ./*.go
+  publish:
+    deps: [build_linux]
+    cmds:
+      - echo "Publishing to endymion"
+      - scp entsoe_redis endymion.xyz:bin/
+
+  upgrade-deps:
+    desc: Upgrade all dependencies to their latest versions
+    silent: true
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+      - echo "✅ Dependencies upgraded successfully"
+    sources:
+      - go.mod
+      - go.sum
+    generates:
+      - go.mod
+      - go.sum
