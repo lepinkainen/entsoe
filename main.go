@@ -81,7 +81,7 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string) error {
 		}
 		
 		xmlData, err = io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		
 		if err != nil {
 			if attempt == maxRetries {
