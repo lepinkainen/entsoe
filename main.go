@@ -60,17 +60,40 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string) error {
 
 	//fmt.Printf("URL: %s\n", url)
 
-	resp, err := http.Get(url)
-	if err != nil {
-		fmt.Printf("Error making HTTP request: %v", err)
-		return err
+	// Create HTTP client with timeouts and retry logic
+	client := &http.Client{
+		Timeout: 30 * time.Second,
 	}
-	defer resp.Body.Close()
 
-	xmlData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Printf("Error reading HTTP response: %v", err)
-		return err
+	var xmlData []byte
+	var err error
+	maxRetries := 3
+	
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		resp, err := client.Get(url)
+		if err != nil {
+			if attempt == maxRetries {
+				return fmt.Errorf("HTTP request failed after %d attempts: %w", maxRetries, err)
+			}
+			fmt.Printf("HTTP request attempt %d failed: %v, retrying...\n", attempt, err)
+			time.Sleep(time.Duration(attempt) * 2 * time.Second) // exponential backoff
+			continue
+		}
+		
+		xmlData, err = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		
+		if err != nil {
+			if attempt == maxRetries {
+				return fmt.Errorf("reading HTTP response failed after %d attempts: %w", maxRetries, err)
+			}
+			fmt.Printf("Reading response attempt %d failed: %v, retrying...\n", attempt, err)
+			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+			continue
+		}
+		
+		// Success - break out of retry loop
+		break
 	}
 
 	var doc PublicationMarketDocument
