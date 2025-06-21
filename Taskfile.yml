@@ -4,39 +4,42 @@ version: "3"
 dotenv: [".env"]
 
 vars:
-  EXECUTABLE: entsoe_redis
+  FUNCNAME: entsoe_redis
+  BUILDDIR: build
+  BINARY: "{{.BUILDDIR}}/{{.FUNCNAME}}"
 
 tasks:
   build:
-    deps: [vet]
+    deps: [vet, lint]
     cmds:
-      - GOARCH=amd64 GOOS=linux go build -v -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.EXECUTABLE}}
+      - go build -v -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.BINARY}}
     sources:
       - ./*.go
     generates:
-      - "{{.EXECUTABLE}}"
+      - "{{.BINARY}}"
     vars:
       GIT_COMMIT:
         sh: git log -n 1 --format=%h
 
-  build_linux:
-    deps: [vet]
+  build-linux:
+    deps: [vet, lint]
     cmds:
-      - GOARCH=amd64 GOOS=linux go build -v -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.EXECUTABLE}}
+      - GOARCH=amd64 GOOS=linux go build -v -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.BINARY}}-linux-amd64
     sources:
       - ./*.go
     generates:
-      - "{{.EXECUTABLE}}"
+      - "{{.BINARY}}-linux-amd64"
     vars:
       GIT_COMMIT:
         sh: git log -n 1 --format=%h
 
   lint:
-    desc: Run Go linters
+    desc: Run Go linters (requires golangci-lint)
     cmds:
       - golangci-lint run ./...
     sources:
-      - ./**/*.go
+      - "**/*.go"
+      - "go.mod"
     silent: true
 
   vet:
