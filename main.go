@@ -81,7 +81,9 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string) error {
 		}
 		
 		xmlData, err = io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
+		}
 		
 		if err != nil {
 			if attempt == maxRetries {
