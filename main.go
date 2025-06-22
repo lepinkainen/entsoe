@@ -5,8 +5,9 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -68,32 +69,32 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string) error {
 	var xmlData []byte
 	var err error
 	maxRetries := 3
-	
+
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		resp, err := client.Get(url)
 		if err != nil {
 			if attempt == maxRetries {
 				return fmt.Errorf("HTTP request failed after %d attempts: %w", maxRetries, err)
 			}
-			fmt.Printf("HTTP request attempt %d failed: %v, retrying...\n", attempt, err)
+			slog.Warn("HTTP request attempt failed, retrying", "attempt", attempt, "error", err)
 			time.Sleep(time.Duration(attempt) * 2 * time.Second) // exponential backoff
 			continue
 		}
-		
+
 		xmlData, err = io.ReadAll(resp.Body)
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			fmt.Printf("Warning: failed to close response body: %v\n", closeErr)
+			slog.Warn("Failed to close response body", "error", closeErr)
 		}
-		
+
 		if err != nil {
 			if attempt == maxRetries {
 				return fmt.Errorf("reading HTTP response failed after %d attempts: %w", maxRetries, err)
 			}
-			fmt.Printf("Reading response attempt %d failed: %v, retrying...\n", attempt, err)
+			slog.Warn("Reading response attempt failed, retrying", "attempt", attempt, "error", err)
 			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 			continue
 		}
-		
+
 		// Success - break out of retry loop
 		break
 	}
@@ -105,10 +106,10 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string) error {
 		var doc AcknowledgementMarketDocument
 		err = xml.Unmarshal(xmlData, &doc)
 		if err != nil {
-			fmt.Printf("Error unmarshaling AcknowledgementMarketDocumentXML: %v", err)
+			slog.Error("Error unmarshaling AcknowledgementMarketDocumentXML", "error", err)
 			return err
 		}
-		fmt.Printf("Error retrieving data: Code: %s\nMessage: %s\n", doc.Reason.Code, doc.Reason.Text)
+		slog.Error("Error retrieving data", "code", doc.Reason.Code, "message", doc.Reason.Text)
 		return err
 	}
 
@@ -186,6 +187,7 @@ func main() {
 	end := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location()).Format("200601020000")
 
 	if err := fillFromEntsoe(rdb, start, end); err != nil {
-		log.Fatalf("Failed to fill data from Entsoe: %v", err)
+		slog.Error("Failed to fill data from Entsoe", "error", err)
+		os.Exit(1)
 	}
 }

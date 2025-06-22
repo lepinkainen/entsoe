@@ -10,7 +10,7 @@ vars:
 
 tasks:
   build:
-    deps: [vet, lint]
+    deps: [test, vet, lint]
     cmds:
       - go build -v -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.BINARY}}
     sources:
@@ -22,7 +22,7 @@ tasks:
         sh: git log -n 1 --format=%h
 
   build-linux:
-    deps: [vet, lint]
+    deps: [test, vet, lint]
     cmds:
       - GOARCH=amd64 GOOS=linux go build -v -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.BINARY}}-linux-amd64
     sources:
@@ -47,6 +47,36 @@ tasks:
       - go vet ./...
     sources:
       - ./*.go
+
+  test:
+    desc: Run Go tests
+    cmds:
+      - go test -v ./...
+    sources:
+      - "**/*.go"
+      - "go.mod"
+
+  test-ci:
+    desc: Run Go tests for CI with coverage
+    cmds:
+      - go test -tags=ci -cover -v ./...
+    sources:
+      - "**/*.go"
+      - "go.mod"
+
+  build-ci:
+    desc: Build for CI
+    deps: [test-ci, lint]
+    cmds:
+      - go build -v -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.BINARY}}-ci
+    sources:
+      - ./*.go
+    generates:
+      - "{{.BINARY}}-ci"
+    vars:
+      GIT_COMMIT:
+        sh: git log -n 1 --format=%h
+
   publish:
     deps: [build_linux]
     cmds:

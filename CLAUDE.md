@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+Refer to llm-shared/project_tech_stack.md for library and technology choices.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
@@ -9,12 +11,14 @@ This is a Go application that fetches electricity price data from the ENTSOE (Eu
 ## Core Architecture
 
 The application consists of two main Go files:
+
 - `main.go` - Main application logic with data fetching and Redis storage
 - `entsoe.go` - XML data structures for parsing ENTSOE API responses
 
 Key components:
+
 - **Configuration**: Uses Viper for YAML config management (`config.yml`)
-- **Data Storage**: Redis Time Series with duplicate policy "LAST" 
+- **Data Storage**: Redis Time Series with duplicate policy "LAST"
 - **API Integration**: ENTSOE Transparency Platform REST API
 - **Data Processing**: XML unmarshaling of market documents with hourly price points
 
@@ -26,7 +30,7 @@ The project uses Task (Taskfile.yml) for build automation:
 # Build the application
 task build
 
-# Build for Linux deployment  
+# Build for Linux deployment
 task build_linux
 
 # Run Go linter
@@ -43,6 +47,7 @@ task publish
 ```
 
 Standard Go commands:
+
 ```bash
 # Run the application
 go run .
@@ -57,11 +62,13 @@ go fmt ./...
 ## Configuration
 
 The application expects a `config.yml` file with Redis connection details and ENTSOE API credentials. It searches for config in:
+
 - `$HOME/.config/entsoe_redis/config.yml`
-- `$HOME/.entsoe_redis/config.yml` 
+- `$HOME/.entsoe_redis/config.yml`
 - `./config.yml`
 
 Required config structure:
+
 ```yaml
 redis:
   address: "host:port"
