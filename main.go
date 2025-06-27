@@ -76,21 +76,20 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string) error {
 			if attempt == maxRetries {
 				return fmt.Errorf("HTTP request failed after %d attempts: %w", maxRetries, err)
 			}
-			slog.Warn("HTTP request attempt failed, retrying", "attempt", attempt, "error", err)
 			time.Sleep(time.Duration(attempt) * 2 * time.Second) // exponential backoff
 			continue
 		}
 
 		xmlData, err = io.ReadAll(resp.Body)
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			slog.Warn("Failed to close response body", "error", closeErr)
+			// Silently handle close error - not critical for functionality
+			_ = closeErr
 		}
 
 		if err != nil {
 			if attempt == maxRetries {
 				return fmt.Errorf("reading HTTP response failed after %d attempts: %w", maxRetries, err)
 			}
-			slog.Warn("Reading response attempt failed, retrying", "attempt", attempt, "error", err)
 			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 			continue
 		}
