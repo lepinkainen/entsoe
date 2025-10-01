@@ -25,12 +25,37 @@ func TestPricePoint(t *testing.T) {
 	}
 }
 
-func TestConstants(t *testing.T) {
-	if DEBUG != false {
-		t.Errorf("Expected DEBUG to be false, got %v", DEBUG)
+func TestIsoResolutionToDuration(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		expect  time.Duration
+		wantErr bool
+	}{
+		{name: "hourly", input: "PT1H", expect: time.Hour},
+		{name: "fifteen minutes", input: "PT15M", expect: 15 * time.Minute},
+		{name: "seconds", input: "PT30S", expect: 30 * time.Second},
+		{name: "invalid", input: "15M", wantErr: true},
+		{name: "empty", input: "", wantErr: true},
 	}
 
-	if DRY_RUN != false {
-		t.Errorf("Expected DRY_RUN to be false, got %v", DRY_RUN)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dur, err := isoResolutionToDuration(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for input %q", tt.input)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error for input %q: %v", tt.input, err)
+			}
+
+			if dur != tt.expect {
+				t.Fatalf("expected %v, got %v", tt.expect, dur)
+			}
+		})
 	}
 }

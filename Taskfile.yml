@@ -78,7 +78,7 @@ tasks:
         sh: git log -n 1 --format=%h
 
   publish:
-    deps: [build_linux]
+    deps: [build-linux]
     cmds:
       - echo "Publishing to endymion"
       - scp entsoe_redis endymion.xyz:bin/
