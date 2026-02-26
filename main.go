@@ -83,6 +83,7 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 			if attempt == maxRetries {
 				return fmt.Errorf("HTTP request failed after %d attempts: %w", maxRetries, err)
 			}
+			slog.Warn("HTTP request failed, retrying...", "attempt", attempt, "error", err)
 			time.Sleep(time.Duration(attempt) * 2 * time.Second) // exponential backoff
 			continue
 		}
@@ -97,26 +98,55 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 			if attempt == maxRetries {
 				return fmt.Errorf("reading HTTP response failed after %d attempts: %w", maxRetries, err)
 			}
+			slog.Warn("Reading HTTP response failed, retrying...", "attempt", attempt, "error", err)
 			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 			continue
+		}
+
+		// Retry on server errors (5xx)
+		if resp.StatusCode >= 500 {
+			if attempt == maxRetries {
+				return fmt.Errorf("HTTP request failed after %d attempts: server returned %d", maxRetries, resp.StatusCode)
+			}
+			slog.Warn("Server error, retrying...", "attempt", attempt, "status", resp.StatusCode)
+			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+			continue
+		}
+
+		// Non-retryable HTTP error
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("HTTP request failed with status %d", resp.StatusCode)
 		}
 
 		// Success - break out of retry loop
 		break
 	}
 
+	// Check that the response looks like XML before trying to parse it
+	trimmed := strings.TrimSpace(string(xmlData))
+	if !strings.HasPrefix(trimmed, "<?xml") && !strings.HasPrefix(trimmed, "<") {
+		preview := trimmed
+		if len(preview) > 200 {
+			preview = preview[:200] + "..."
+		}
+		return fmt.Errorf("ENTSOE API returned non-XML response: %s", preview)
+	}
+
 	var doc PublicationMarketDocument
 	err = xml.Unmarshal(xmlData, &doc)
 	if err != nil {
 		// unmarshal error is most likely an error document
-		var doc AcknowledgementMarketDocument
-		err = xml.Unmarshal(xmlData, &doc)
-		if err != nil {
-			slog.Error("Error unmarshaling AcknowledgementMarketDocumentXML", "error", err)
-			return err
+		var ackDoc AcknowledgementMarketDocument
+		ackErr := xml.Unmarshal(xmlData, &ackDoc)
+		if ackErr != nil {
+			// Neither document type matched — log a preview of the response
+			preview := trimmed
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			return fmt.Errorf("ENTSOE API returned unexpected response: %s", preview)
 		}
-		slog.Error("Error retrieving data", "code", doc.Reason.Code, "message", doc.Reason.Text)
-		return err
+		return fmt.Errorf("ENTSOE API error %s: %s", ackDoc.Reason.Code, ackDoc.Reason.Text)
 	}
 
 	layout := "2006-01-02T15:04Z"
@@ -175,7 +205,7 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 		return fmt.Errorf("pipeline execution failed: %w", err)
 	}
 
-	slog.Info("Stored price points", "count", count)
+	slog.Debug("Stored price points", "count", count)
 
 	return nil
 }
