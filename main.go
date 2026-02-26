@@ -83,7 +83,7 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 			if attempt == maxRetries {
 				return fmt.Errorf("HTTP request failed after %d attempts: %w", maxRetries, err)
 			}
-			slog.Warn("HTTP request failed, retrying...", "attempt", attempt, "error", err)
+			slog.Debug("HTTP request failed, retrying...", "attempt", attempt, "error", err)
 			time.Sleep(time.Duration(attempt) * 2 * time.Second) // exponential backoff
 			continue
 		}
@@ -98,7 +98,7 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 			if attempt == maxRetries {
 				return fmt.Errorf("reading HTTP response failed after %d attempts: %w", maxRetries, err)
 			}
-			slog.Warn("Reading HTTP response failed, retrying...", "attempt", attempt, "error", err)
+			slog.Debug("Reading HTTP response failed, retrying...", "attempt", attempt, "error", err)
 			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 			continue
 		}
@@ -108,7 +108,7 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 			if attempt == maxRetries {
 				return fmt.Errorf("HTTP request failed after %d attempts: server returned %d", maxRetries, resp.StatusCode)
 			}
-			slog.Warn("Server error, retrying...", "attempt", attempt, "status", resp.StatusCode)
+			slog.Debug("Server error, retrying...", "attempt", attempt, "status", resp.StatusCode)
 			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 			continue
 		}
