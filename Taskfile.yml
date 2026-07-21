@@ -65,8 +65,7 @@ tasks:
       - "go.mod"
 
   build-ci:
-    desc: Build for CI
-    deps: [test-ci, lint]
+    desc: Build for CI (compile only; CI orchestrates test/lint via job deps)
     cmds:
       - go build -v -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.BINARY}}-ci
     sources:

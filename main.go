@@ -17,6 +17,16 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Version is the build version, injected at build time via
+// -ldflags="-X main.Version=<git commit>". Defaults to "dev" for local builds.
+var Version = "dev"
+
+// userAgent returns the HTTP User-Agent string identifying this client to the
+// ENTSOE API, including the project name and version.
+func userAgent() string {
+	return fmt.Sprintf("entsoe_redis/%s", Version)
+}
+
 // PricePoint represents a single price data point with timestamp information
 type PricePoint struct {
 	TimeStamp      time.Time
@@ -78,7 +88,13 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 	maxRetries := 3
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		resp, err := client.Get(url)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create HTTP request: %w", err)
+		}
+		req.Header.Set("User-Agent", userAgent())
+
+		resp, err := client.Do(req)
 		if err != nil {
 			if attempt == maxRetries {
 				return fmt.Errorf("HTTP request failed after %d attempts: %w", maxRetries, err)
@@ -259,6 +275,7 @@ func main() {
 
 	now := time.Now().Truncate(time.Hour)
 	if *debugFlag {
+		fmt.Printf("entsoe_redis version %s\n", Version)
 		fmt.Printf("Debug run at %s (%d)\n", now.Format(time.RFC3339), now.UnixMilli())
 		fmt.Println("Debug mode enabled; data will not be stored in Redis.")
 	}
