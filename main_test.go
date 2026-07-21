@@ -3,8 +3,12 @@
 package main
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 func TestPricePoint(t *testing.T) {
@@ -22,6 +26,30 @@ func TestPricePoint(t *testing.T) {
 
 	if pp.RedisTimestamp != now.Unix()*1000 {
 		t.Errorf("Expected timestamp %d, got %d", now.Unix()*1000, pp.RedisTimestamp)
+	}
+}
+
+func TestPingRedisUnreachableReturnsError(t *testing.T) {
+	// Point at a port that refuses connections so the dial fails, mimicking the
+	// DNS/dial timeouts seen on the cron host. After exhausting its retries
+	// pingRedis must surface the error so main() can log it and the operator can
+	// intervene.
+	rdb := redis.NewClient(&redis.Options{
+		Addr:        "127.0.0.1:1",
+		DialTimeout: 200 * time.Millisecond,
+		MaxRetries:  -1,
+	})
+	defer func() { _ = rdb.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err := pingRedis(ctx, rdb)
+	if err == nil {
+		t.Fatal("expected an error pinging an unreachable Redis")
+	}
+	if !strings.Contains(err.Error(), "redis connection failed") {
+		t.Fatalf("expected a redis connection failure, got %v", err)
 	}
 }
 

@@ -42,8 +42,8 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 
 	if shouldStore {
 		// ping and handle error properly
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			return fmt.Errorf("redis connection failed: %w", err)
+		if err := pingRedis(ctx, rdb); err != nil {
+			return err
 		}
 
 		// Create a new Redis Time Series with duplicate policy LAST
@@ -208,6 +208,29 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 	slog.Debug("Stored price points", "count", count)
 
 	return nil
+}
+
+// pingRedis verifies the Redis connection, retrying a few times to ride out
+// transient DNS/dial hiccups. Intermediate attempts are logged at Debug (quiet)
+// so a single blip doesn't generate cron mail; if every attempt fails the error
+// is returned so the caller can surface it and the operator can intervene.
+func pingRedis(ctx context.Context, rdb *redis.Client) error {
+	const maxRetries = 3
+
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			lastErr = err
+			slog.Debug("Redis ping failed, retrying...", "attempt", attempt, "error", err)
+			if attempt < maxRetries {
+				time.Sleep(time.Duration(attempt) * 2 * time.Second) // exponential backoff
+			}
+			continue
+		}
+		return nil
+	}
+
+	return fmt.Errorf("redis connection failed after %d attempts: %w", maxRetries, lastErr)
 }
 
 func main() {
