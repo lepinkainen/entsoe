@@ -24,7 +24,7 @@ tasks:
   build-linux:
     deps: [test, vet, lint]
     cmds:
-      - GOARCH=amd64 GOOS=linux go build -v -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.BINARY}}-linux-amd64
+      - GOARCH=amd64 GOOS=linux go build -ldflags="-X main.Version={{.GIT_COMMIT}}" -o {{.BINARY}}-linux-amd64
     sources:
       - ./*.go
     generates:
@@ -80,8 +80,8 @@ tasks:
   publish:
     deps: [build-linux]
     cmds:
-      - echo "Publishing to endymion"
-      - scp entsoe_redis endymion.xyz:bin/
+      - echo "Publishing,,"
+      - scp build/entsoe_redis-linux-amd64 ${PUBLISH_DESTINATION}
 
   upgrade-deps:
     desc: Upgrade all dependencies to their latest versions

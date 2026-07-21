@@ -2,3 +2,4 @@ config.yml
 entsoe_redis
 .task/
 build/
+.envrc
