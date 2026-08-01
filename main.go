@@ -36,7 +36,8 @@ type PricePoint struct {
 }
 
 type fillOptions struct {
-	Debug bool
+	Debug  bool
+	DryRun bool
 }
 
 // fillFromEntsoe retrieves price data from Entsoe API and stores it in Redis
@@ -48,7 +49,8 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	shouldStore := !opts.Debug
+	shouldStore := !opts.DryRun
+	verbose := opts.Debug || opts.DryRun
 
 	if shouldStore {
 		// ping and handle error properly
@@ -76,7 +78,11 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 		startApi,
 		endApi)
 
-	//fmt.Printf("URL: %s\n", url)
+	if opts.Debug {
+		redactedURL := strings.Replace(url, "securityToken="+viper.GetString("nordpool.apikey"),
+			"securityToken=***redacted***", 1)
+		fmt.Printf("Request URL: %s\n", redactedURL)
+	}
 
 	// Create HTTP client with timeouts and retry logic
 	client := &http.Client{
@@ -85,6 +91,7 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 
 	var xmlData []byte
 	var err error
+	var statusCode int
 	maxRetries := 3
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -135,7 +142,12 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 		}
 
 		// Success - break out of retry loop
+		statusCode = resp.StatusCode
 		break
+	}
+
+	if opts.Debug {
+		fmt.Printf("HTTP response: status %d, %d bytes\n", statusCode, len(xmlData))
 	}
 
 	// Check that the response looks like XML before trying to parse it
@@ -169,6 +181,11 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 
 	var pricePoints []PricePoint
 	for _, timeserie := range doc.TimeSeries {
+		if verbose {
+			fmt.Printf("Time series: resolution=%s period start=%s points=%d\n",
+				timeserie.Period.Resolution, timeserie.Period.TimeInterval.Start, len(timeserie.Period.Points))
+		}
+
 		startStr := timeserie.Period.TimeInterval.Start
 		start, err := time.Parse(layout, startStr)
 		if err != nil {
@@ -177,7 +194,7 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 
 		resolutionDuration, err := isoResolutionToDuration(timeserie.Period.Resolution)
 		if err != nil {
-			if opts.Debug {
+			if verbose {
 				fmt.Printf("warning: unknown resolution %q, defaulting to 1h\n", timeserie.Period.Resolution)
 			}
 			resolutionDuration = time.Hour
@@ -197,11 +214,24 @@ func fillFromEntsoe(rdb *redis.Client, startApi, endApi string, opts fillOptions
 		}
 	}
 
-	if opts.Debug {
-		fmt.Printf("Debug mode enabled; parsed %d price points across %d time series.\n", len(pricePoints), len(doc.TimeSeries))
+	if verbose {
+		fmt.Printf("Parsed %d price points across %d time series.\n", len(pricePoints), len(doc.TimeSeries))
 		for _, pp := range pricePoints {
 			fmt.Printf("%s -> %.2f c/kWh\n", pp.Time, pp.Price)
 		}
+		if len(pricePoints) > 0 {
+			minPrice, maxPrice := pricePoints[0].Price, pricePoints[0].Price
+			for _, pp := range pricePoints[1:] {
+				minPrice = min(minPrice, pp.Price)
+				maxPrice = max(maxPrice, pp.Price)
+			}
+			fmt.Printf("Price summary: min=%.2f c/kWh max=%.2f c/kWh\n", minPrice, maxPrice)
+		} else {
+			fmt.Println("Price summary: no price points parsed.")
+		}
+	}
+
+	if !shouldStore {
 		return nil
 	}
 
@@ -250,8 +280,13 @@ func pingRedis(ctx context.Context, rdb *redis.Client) error {
 }
 
 func main() {
-	debugFlag := flag.Bool("debug", false, "Print parsed data for the requested window without writing to Redis")
+	debugFlag := flag.Bool("debug", false, "Print extra debug information (still stores data to Redis)")
+	dryRunFlag := flag.Bool("dry-run", false, "Fetch and print data without writing to Redis")
 	flag.Parse()
+
+	if *debugFlag {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
 
 	// Load configuration from file
 	viper.SetConfigName("config") // Name of the configuration file (without extension)
@@ -274,18 +309,29 @@ func main() {
 	})
 
 	now := time.Now().Truncate(time.Hour)
-	if *debugFlag {
-		fmt.Printf("entsoe_redis version %s\n", Version)
-		fmt.Printf("Debug run at %s (%d)\n", now.Format(time.RFC3339), now.UnixMilli())
-		fmt.Println("Debug mode enabled; data will not be stored in Redis.")
-	}
 
 	// midnight today
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Format("200601020000")
 	// midnight tomorrow
 	end := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location()).Format("200601020000")
 
-	if err := fillFromEntsoe(rdb, start, end, fillOptions{Debug: *debugFlag}); err != nil {
+	if *debugFlag || *dryRunFlag {
+		fmt.Printf("entsoe_redis version %s\n", Version)
+		fmt.Printf("Run at %s (%d)\n", now.Format(time.RFC3339), now.UnixMilli())
+	}
+	if *dryRunFlag {
+		fmt.Println("Dry-run mode enabled; data will not be stored in Redis.")
+	}
+	if *debugFlag {
+		fmt.Printf("Config file: %s\n", viper.ConfigFileUsed())
+		fmt.Printf("Redis target: %s db %d (time series %q)\n",
+			viper.GetString("redis.address"), viper.GetInt("redis.db"), viper.GetString("redis.dbname"))
+		fmt.Printf("Domains: in_Domain=%s out_Domain=%s\n",
+			viper.GetString("nordpool.in_domain"), viper.GetString("nordpool.out_domain"))
+		fmt.Printf("Request window: periodStart=%s periodEnd=%s\n", start, end)
+	}
+
+	if err := fillFromEntsoe(rdb, start, end, fillOptions{Debug: *debugFlag, DryRun: *dryRunFlag}); err != nil {
 		slog.Error("Failed to fill data from Entsoe", "error", err)
 		os.Exit(1)
 	}

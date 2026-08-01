@@ -31,7 +31,8 @@ Get an API key from the [ENTSOE Transparency Platform](https://transparency.ents
 
 ```
 entsoe_redis           # fetch today's prices and store in Redis
-entsoe_redis -debug    # print prices to stdout without storing
+entsoe_redis -dry-run  # print prices to stdout without storing
+entsoe_redis -debug    # print diagnostics (still stores to Redis)
 ```
 
 ## Building

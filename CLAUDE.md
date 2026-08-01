@@ -61,8 +61,8 @@ Standard Go commands:
 # Run the application
 go run .
 
-# Run with debug mode (prints data without storing to Redis)
-go run . -debug
+# Run in dry-run mode (prints data without storing to Redis)
+go run . -dry-run
 
 # Run specific test file
 go test -v entsoe_test.go entsoe.go
@@ -115,7 +115,7 @@ nordpool:
   - Converts ENTSOE timestamps to Unix milliseconds for Redis
   - Handles hourly, minute, and second resolutions
 - **Price Conversion**: Divides API prices by 10 to get c/kWh from EUR/MWh
-- **Debug Mode**: `--debug` flag prints parsed data without storing to Redis
+- **Debug Mode**: `--debug` flag prints diagnostics but still stores to Redis; `--dry-run` prints parsed data without storing
 - **Version Embedding**: Build process embeds git commit hash via `-ldflags="-X main.Version={{.GIT_COMMIT}}"`
 
 ### Testing Strategy
