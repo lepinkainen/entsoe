@@ -2,7 +2,7 @@ module github.com/lepinkainen/entsoe
 
 go 1.26.1
 
-require github.com/redis/go-redis/v9 v9.7.0
+require github.com/redis/go-redis/v9 v9.7.3
 
 require (
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
